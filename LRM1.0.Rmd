@@ -1,0 +1,268 @@
+---
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r warning=F, message=F}
+library(tidyverse)
+library(knitr)
+library(ggplot2)
+library(patchwork)
+library(car)
+library(corrplot)
+library(lmvar)
+library(cvms)
+```
+
+# Page 1
+
+```{r}
+LC = read.csv("lending_club_loans.csv")
+LC = LC[!is.na(LC$member_id),]
+# head(LC)
+```
+
+```{r}
+unemployed_func <- function(x){
+  if (x == "") {
+    unemployed = 1
+  } else {
+    unemployed = 0
+  }
+  return(unemployed)
+}
+emp_length_func <- function(x){
+  if (x == "10+ years") {
+    emp_length = 10
+  } else if (x == "n/a" || x == "< 1 year") {
+    emp_length = 0
+  } else {
+    emp_length = as.numeric(substring(x,1,1))
+  }
+}
+default_func <- function(x){
+  if (x == "Fully Paid" || x == "Does not meet the credit policy.  Status:Fully Paid") {
+    default = 0
+  } else {
+    default = 1
+  }
+  return(default)
+}
+```
+
+```{r}
+LC1 = LC[,c(3:18)]
+LC1$fico_range_high = LC$fico_range_high
+LC1$open_acc = LC$open_acc
+LC1$loan_status = LC$loan_status
+LC1 = LC1[!is.na(LC1$open_acc),]
+LC1 = LC1[, !names(LC1) %in% c("sub_grade", "issue_d", "pymnt_plan")]
+# home_ownership
+home_other_count = as.numeric(nrow(LC1[LC1$home_ownership == "OTHER",]))
+home_none_count = as.numeric(nrow(LC1[LC1$home_ownership == "NONE",]))
+LC1 = LC1[LC1$home_ownership %in% c("OWN", "MORTGAGE", "RENT"),]
+head(LC1)
+sort(colnames(LC1))
+```
+
+
+```{r}
+LC1$unemployed = sapply(LC1$emp_title, unemployed_func)
+LC1$default = sapply(LC1$loan_status, default_func)
+LC1$emp_length = sapply(LC1$emp_length, emp_length_func)
+LC1$int_rate = as.numeric(sub("%", "", LC1$int_rate))/100
+LC1$grade = as.numeric(sapply(LC1$grade, utf8ToInt) - 64)
+LC1$default = as.factor(LC1$default)
+LC1$term = as.factor(LC1$term)
+LC1$home_ownership = as.factor(LC1$home_ownership)
+LC1$unemployed = as.factor(LC1$unemployed)
+LC1$verification_status = as.factor(LC1$verification_status)
+
+LC1 = LC1[, !names(LC1) %in% c("loan_status", "emp_title")]
+head(LC1)
+```
+
+```{r}
+LC_corplot = LC1[!names(LC1) %in% c("term", "verification_status", "home_ownership")]
+LC_corplot$unemployed = as.numeric(LC_corplot$unemployed)
+LC_corplot$default = as.numeric(LC_corplot$default)
+cor = cor(LC_corplot)
+corrplot(cor, method = "circle", type = "lower")
+```
+
+```{r}
+glm1 = glm(default~., data = LC1, family = "binomial")
+# summary(glm1)
+vif(glm1)
+```
+
+```{r}
+LC_pairs = LC1[,names(LC1) %in% c("loan_amnt", "funded_amnt", "funded_amnt_inv", "int_rate", "installment")]
+pairs(LC_pairs, pch = 16,
+      col = rgb(0, 0.5, 1, alpha = 0.1))
+```
+
+```{r}
+# remove funded_amnt, funded_amnt_inv, installment
+LC1 = LC1[,!names(LC1) %in% c("funded_amnt", "funded_amnt_inv", "installment")]
+```
+
+```{r}
+# Training & Testing
+sample <- sample(c(TRUE, FALSE), nrow(LC1), replace=TRUE, prob=c(0.8,0.2))
+LC_train = LC1[sample,]
+LC_test = LC1[!sample,]
+```
+
+```{r}
+# AIC
+glm2 = glm(default ~ ., data = LC_train, family = "binomial")
+step(glm2, dir = "backward", k = 2)
+```
+
+```{r}
+glm.aic = glm(formula = default ~ loan_amnt + term + int_rate + grade + 
+    home_ownership + annual_inc + verification_status + fico_range_high + 
+    open_acc + unemployed, family = "binomial", data = LC_train)
+summary(glm.aic)
+```
+
+
+```{r}
+# BIC
+n = nrow(LC_train)
+step(glm2, dir = "backward", k = log(n))
+```
+
+```{r}
+glm.bic = glm(formula = default ~ term + int_rate + grade + annual_inc + 
+    verification_status + fico_range_high + open_acc + unemployed, 
+    family = "binomial", data = LC_train)
+summary(glm.bic)
+```
+
+```{r}
+# LOOCV
+# Calculate LOOCV score for a linear model
+# Input: a model as fit by lm()
+# Output: leave-one-out CV score
+loocv.lm <- function(mdl) {
+  return(mean((residuals(mdl)/(1-hatvalues(mdl)))^2))
+}
+loocv.lm(glm.aic)
+loocv.lm(glm.bic)
+```
+
+
+```{r}
+p = predict(glm.aic, LC_test, type = "response")
+n_test = nrow(LC_test)
+result = rep(NA, n_test)
+for (i in 1:n_test) {
+  if (p[i] < 1/2) {
+    result[i] = 0
+  } else {
+    result[i] = 1
+  }
+}
+accuracy = 0
+for (i in 1:n_test) {
+  if (result[i] == LC_test$default[i]) {
+    accuracy = accuracy + 1/n_test
+  }
+}
+accuracy
+```
+
+```{r}
+p = predict(glm.bic, LC_test, type = "response")
+n_test = nrow(LC_test)
+result = rep(NA, n_test)
+for (i in 1:n_test) {
+  if (p[i] < 1/2) {
+    result[i] = 0
+  } else {
+    result[i] = 1
+  }
+}
+accuracy = 0
+for (i in 1:n_test) {
+  if (result[i] == LC_test$default[i]) {
+    accuracy = accuracy + 1/n_test
+  }
+}
+accuracy
+```
+
+```{r}
+plot(glm.bic, which = 4, col = "purple")
+```
+
+
+```{r}
+kable(LC1[c(10651, 40518, 40533), names(LC1) %in% c("term", "int_rate", "grade", "annual_inc", "verification_status", "fico_range_high", "open_acc", "unemployed", "default")])
+```
+
+
+```{r warning = F}
+# Confusion Matrix
+target = LC_test$default
+table(dplyr::tibble(target = target, prediction = result))
+cfm = dplyr::as_tibble(table(dplyr::tibble(target = target, prediction = result)))
+plot_confusion_matrix(cfm,
+                      target_col = "target",
+                      prediction_col = "prediction",
+                      counts_col = "n")
+```
+
+# Odds Ratio
+
+```{r}
+glm.bic$coefficients
+coef.bic = as.numeric(glm.bic$coefficients)
+```
+
+
+```{r}
+# OR_hat
+vec = c(1,0.01,1,1000,1,1,10,1,1)
+plot(exp(coef.bic[2:10]*vec), type = "h", col = "purple",
+     xlab = "predictor",
+     ylab = expression(widehat(OR)),
+     ylim = c(0,2))
+abline(h = 1, col = "red")
+names = names(coef)[2:10]
+kable(tibble(Variable = names,
+             Multiplier = vec,
+             OR = round(exp(coef.bic[2:10]*vec), 4)))
+```
+
+
+```{r}
+# CI for OR
+kable(exp(cbind(OddsRatio = coef(glm.bic),
+             confint.default(glm.bic, type = "Wald")
+)))
+# CI for AIC coefficient
+kable(cbind(Coefficient = coef(glm.aic),
+             confint.default(glm.aic, type = "Wald")
+))
+# CI for BIC coefficient
+kable(cbind(Coefficient = coef(glm.bic),
+             confint.default(glm.bic, type = "Wald")
+))
+```
+
+```{r}
+kable(tibble("Loan Status" = unique(LC$loan_status),
+      "Default" = c(0,1,1,1,1,1,1,0,1)))
+```
+
+```{r}
+slices = c(nrow(LC1[LC1$default == 0,]), nrow(LC1[LC1$default == 1,]))
+labels = c("Fully Paid: 33503", "Default: 8863")
+pie(slices, labels = labels, main = "Fully Paid vs Default", col = c("lightblue", "orange"))
+```
+
