@@ -1,0 +1,102 @@
+---
+output: pdf_document
+---
+
+# STAT 423 Project Proposal
+
+## William Huang, Zihan Li, Haonan Xu
+
+## 1. Introduction
+
+Background: During the recent economic recessions, numerous credit default events caused huge financial losses and bankruptcy of some of the largest financial institutions. Although the systematic risk is inevitable, financial institutions can optimize their credit threshold to reduce idiosyncratic risk, which requires building a model based on the individuals' credit history.
+
+The motivation of the project is to study the causes of default on loan. Some factors include the type of the loan, term of the loan, interest rate on the loan and the borrower's income. The goal of our study is to find out the most significant factors that result in loan default. 
+
+## 2. Data Description
+
+The dataset is a subset of LendingClub Loan Data 2007-11. Data includes loans issued by lendingclub.com from 2007-2011 with performance data. The original data is published by Josh Devlin on  [https://data.world/jaypeedevlin/lending-club-loan-data-2007-11](https://data.world/jaypeedevlin/lending-club-loan-data-2007-11) 
+
+The original data contains 42535 observations of 115 variables. The data is modified by Haonan Xu by randomly selecting 4000 observations (fixed seed) of 9 variables. The "grade", "home_ownership", and "unemployed" are categorical data. The response variable "default" is a dichotomous categorical variable, where 1 indicates default and 0 otherwise. 
+
+
+```{r echo=F, warning=F, message=F}
+library(tidyverse)
+library(knitr)
+LC = read.csv("lending_club_loans.csv")
+LC = LC[!is.na(LC$member_id),]
+unemployed_func <- function(x){
+  if (x == "") {
+    unemployed = 1
+  } else {
+    unemployed = 0
+  }
+  return(unemployed)
+}
+default_func <- function(x){
+  if (x == "Fully Paid" || x == "Does not meet the credit policy.  Status:Fully Paid") {
+    default = 0
+  } else {
+    default = 1
+  }
+  return(default)
+}
+# as.numeric(sapply(LC$grade, utf8ToInt) - 64)
+new_LC = LC[,c(3,5,6,7,9,13,14)]
+new_LC$unemployed = sapply(LC$emp_title, unemployed_func)
+new_LC$default = sapply(LC$loan_status, default_func)
+new_LC$int_rate = as.numeric(sub("%", "", new_LC$int_rate))/100
+
+set.seed(423)
+new_LC_cut = dplyr::sample_n(new_LC, 4000)
+kable(head(new_LC_cut, 10))
+```
+
+
+```{r echo=F}
+VarNames = c("loan_amnt", "funded_amnt _inv", "term", "int_rate",
+             "grade", "home _ownership", "annual_inc", "unemployed", "default
+             (response)")
+Description = c("The listed amount of the loan applied for by the borrower. If at some point in time, the credit department reduces the loan amount, then it will be reflected in this value.",
+                "The total amount committed by investors for that loan at that point in time.",
+                "Term of the loan",
+                "Interest Rate on the loan",
+                "LC assigned loan grade from A to G, A is the highest and G is the lowest grade",
+                "Types of home ownsership",
+                "The self-reported annual income provided by the borrower during registration.",
+                "Employment status, 1 indicates unemployed and 0 indicates employed",
+                "Default status, 1 indicates default and 0 indicates not default")
+Type = c("quantitative continuous", "quantitative continuous",
+         "categorical", "quantitative continuous", 
+         "categorical", "categorical", 
+         "quantitative continuous", "dichotomous categorical", 
+         "dichotomous categorical")
+df = tibble(
+  Variable = VarNames,
+  Description = Description,
+  `Variable Type` = Type
+)
+kable(df)
+```
+
+## 3. Analysis Plan
+
+a) 
+
+Data Preprocessing: Convert the categorical variables (term, grade, home_ownership) into dummy variables, which are binary variables representing the presence or absence of a categorical effect.
+
+Normalization: ensure that the quantitative continuous variables are on the same scale.
+
+Data cleaning: Delete the outliers and missing variables.
+
+Data Split: Split the data into training and testing datasets (Training : Testing = 80% : 20%)
+
+b)
+
+Model Selection: Because the pridiction of loan default is a binary result, we decided to choose logistic regression as the analysis model.
+
+c)
+
+Model Evaluation: The accuracy and F-1 score will be recorded to evaluated the performance of the model.
+
+
+
