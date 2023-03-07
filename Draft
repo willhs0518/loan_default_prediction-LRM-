@@ -1,0 +1,306 @@
+---
+output:
+  html_document:
+    df_print: paged
+---
+
+# STAT 423 Draft Report
+
+## William Huang, Zihan Li, Haonan Xu
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## 1. Introduction
+
+Background: During the recent economic recessions, numerous loan defaults caused huge financial losses and bankruptcy of some of the largest financial institutions. Although the systematic risk is inevitable, financial institutions can optimize their credit threshold to reduce idiosyncratic risk, which requires building a model based on the individuals' credit history.
+
+The motivation of the project is to study the causes of default on loan. Some factors include the type of the loan, term of the loan, interest rate on the loan and the borrower's income. The goal of our study is to find out the most significant factors that result in loan default.
+
+The general research question is factors that affect the result in loan default. The hypothesis is: $H_0$: factors have no effect on loan default; $H_1$: factors have effect on loan default.
+
+## 2. Data Description
+
+The dataset is a subset of LendingClub Loan Data 2007-11. Data includes loans issued by lendingclub.com from 2007-2011 with performance data. The original data is published by Josh Devlin on <https://data.world/jaypeedevlin/lending-club-loan-data-2007-11>
+
+The original data contains 42535 observations of 115 variables.
+
+## 3. Exploratory Data Analysis
+
+```{r warning=F, message=F}
+library(tidyverse)
+library(knitr)
+library(ggplot2)
+library(patchwork)
+library(car)
+```
+
+```{r}
+LC = read.csv("lending_club_loans.csv")
+LC = LC[!is.na(LC$member_id),]
+```
+
+```{r}
+unemployed_func <- function(x){
+  if (x == "") {
+    unemployed = 1
+  } else {
+    unemployed = 0
+  }
+  return(unemployed)
+}
+emp_length_func <- function(x){
+  if (x == "10+ years") {
+    emp_length = 10
+  } else if (x == "n/a" || x == "< 1 year") {
+    emp_length = 0
+  } else {
+    emp_length = as.numeric(substring(x,1,1))
+  }
+}
+default_func <- function(x){
+  if (x == "Fully Paid" || x == "Does not meet the credit policy.  Status:Fully Paid") {
+    default = 0
+  } else {
+    default = 1
+  }
+  return(default)
+}
+LC1 = LC[,c(3:14)]
+LC1 = LC1[, !names(LC1) %in% c("funded_amnt", "funded_amnt_inv", "sub_grade")]
+LC1$loan_status = LC$loan_status
+LC1$fico_range_high = LC$fico_range_high
+head(LC1)
+```
+
+The original data looks like this.
+
+```{r}
+LC1$unemployed = sapply(LC$emp_title, unemployed_func)
+LC1$default = sapply(LC$loan_status, default_func)
+LC1$emp_length = sapply(LC$emp_length, emp_length_func)
+LC1$int_rate = as.numeric(sub("%", "", LC1$int_rate))/100
+LC1$grade = as.numeric(sapply(LC$grade, utf8ToInt) - 64)
+LC1$default = as.factor(LC1$default)
+LC1$term = as.factor(LC1$term)
+LC1$home_ownership = as.factor(LC1$home_ownership)
+LC1$unemployed = as.factor(LC1$unemployed)
+
+LC1 = LC1[, !names(LC1) %in% c("loan_status", "emp_title")]
+
+set.seed(423)
+home_other_count = as.numeric(nrow(LC1[LC1$home_ownership == "OTHER",]))
+home_none_count = as.numeric(nrow(LC1[LC1$home_ownership == "NONE",]))
+LC1 = LC1[LC1$home_ownership %in% c("OWN", "MORTGAGE", "RENT"),]
+LC1 = dplyr::sample_n(LC1, 10000)
+head(LC1, 5)
+```
+
+Our response variable is a binary categorical variable, therefore, we should use logistic regression.
+
+Furthermore, we will drop "OTHER" and "NONE" observations in the home_ownership variable because of very small sample size (`r home_other_count` and `r home_none_count`)
+
+### a. loan_amnt vs funded_amnt (delete this part in draft report)
+
+```{r eval = F}
+cor = cor(LC1$loan_amnt, LC1$funded_amnt)
+cor = round(cor, 4)
+```
+
+The initial observation shows that loan_amnt (The listed amount applied by borrower) and funded_amnt (The total amount committed to that loan in time) are very similar to each other with a correlation of 0.98. However, I am interested in whether the difference causes default, and whether a larger difference will result in higher odds of default.
+
+```{r eval = F, fig.width = 4, fig.height = 3}
+ggplot(LC1, aes(x = loan_amnt, y = funded_amnt)) + 
+  geom_point(color = "orange")
+```
+
+The plot shows that all loan_amnt $\geq$ funded_amnt, and they are equal in most cases, which makes sense in real life.
+
+So I grab the subset where loan_amnt \> funded_amnt, and plot the distribution given default or not.
+
+```{r fig.width = 4, fig.height = 3}
+LC2 = LC1[LC1$loan_amnt > LC1$funded_amnt,]
+LC2$difference = LC2$loan_amnt - LC2$funded_amnt
+ggplot(LC2, aes(x = difference, y = default)) + 
+  geom_boxplot(color = "lightblue")
+```
+
+The boxplot shows that under default or not default, the difference in loan_amnt and funded_amnt are not very obvious. Given the high correlation, it is natural to exclude the funded_amnt from our consideration.
+
+### b. Using VIF to estimate all covariates
+
+```{r}
+LC1 = LC1[, !names(LC1) %in% c("funded_amnt")]
+glm1 = glm(default ~ ., data = LC1, family = "binomial")
+vif(glm1)
+```
+
+loan_amnt, int_rate, and installment have VIF greater than 10, indicating strong multicollinearity. The correlation between loan_amnt and installment is very high. Hence we drop installment.
+
+```{r fig.width = 4, fig.height = 3}
+LC2 = LC1[names(LC1) %in% c("loan_amnt", "int_rate", "installment")]
+pairs(LC2, pch = 16,
+      col = rgb(0, 0.5, 1, alpha = 0.1))
+```
+
+After we drop installment, the VIF for all predictors drop below 10.
+
+```{r}
+# model for AIC
+LC1 = LC1[, !names(LC1) %in% c("installment")]
+glm2 = glm(default ~ ., data = LC1, family = "binomial")
+vif(glm2)
+```
+
+Plot the response variable
+
+```{r fig.width = 3, fig.height = 3}
+ggplot(LC1, aes(x = default)) + 
+  geom_bar(fill = "lightblue")
+```
+
+Plot the quantitative continuous variables
+
+```{r}
+ploan1 = ggplot(LC1, aes(x = loan_amnt)) + 
+  geom_boxplot(color = "lightblue")
+ploan2 = ggplot(LC1, aes(x = loan_amnt)) + 
+  geom_histogram(fill = "lightblue")
+
+pint1 = ggplot(LC1, aes(x = int_rate)) +
+  geom_boxplot(color = "lightgreen")
+pint2 = ggplot(LC1, aes(x = int_rate)) + 
+  geom_histogram(fill = "lightgreen")
+
+pinc1 = ggplot(LC1, aes(x = annual_inc)) +
+  geom_boxplot(color = "pink")
+pinc2 = ggplot(LC1, aes(x = annual_inc)) +
+  geom_histogram(fill = "pink")
+
+pfico1 = ggplot(LC1, aes(x = fico_range_high)) + 
+  geom_boxplot(color = "gold")
+pfico2 = ggplot(LC1, aes(x = fico_range_high)) + 
+  geom_histogram(fill = "gold")
+
+(ploan1 + pint1)/(ploan2 + pint2)
+(pinc1 + pfico1)/(pinc2 + pfico2)
+```
+
+Plot the quantitative discrete variables and categorical variables
+
+```{r}
+pterm1 = ggplot(LC1, aes(x = term)) + 
+  geom_bar(fill = "lightblue")
+pgrade1 = ggplot(LC1, aes(x = grade)) + 
+  geom_bar(fill = "lightgreen")
+plength1 = ggplot(LC1, aes(x = emp_length)) + 
+  geom_bar(fill = "pink")
+phome1 = ggplot(LC1, aes(x = home_ownership)) + 
+  geom_bar(fill = "gold")
+punemp1 = ggplot(LC1, aes(x = unemployed)) + 
+  geom_bar(fill = "violet")
+
+(pgrade1 + plength1)/(pterm1 + phome1 + punemp1)
+```
+
+For training and testing purposes, we split the data. The first 4000 observation will be used for building the logistic regression model.
+
+```{r}
+LC_train = LC1[1:4000,]
+LC_test = LC1[4001:5000,]
+glm = glm(default ~ ., data = LC_train, family = "binomial")
+# AIC
+step(glm, dir = "backward", k = 2)
+```
+
+The model given by AIC criterion is default \~ term + int_rate + grade + annual_inc + fico_range_high + unemployed
+
+```{r}
+# BIC
+# step(glm, dir = "backward", k = log(4000))
+```
+
+```{r}
+glm.aic = glm(default ~ term + int_rate + grade + annual_inc + fico_range_high + unemployed,
+              data = LC_train,
+              family = "binomial")
+# Cook's Distance
+# cd = cooks.distance(glm.aic)
+# plot(cd, type = "h", col = "purple", ylab = "Cooks Distance")
+plot(glm.aic, which = 4, col = "purple")
+```
+
+```{r}
+# Look at cook's distance
+LC_train[c(2747,3481,3828),]
+```
+
+```{r}
+# delete influential observations
+LC_train1 = LC_train[-c(2747, 3481, 3828),]
+# refit the model
+glm.aic2 = glm(default ~ term + int_rate + grade + annual_inc + fico_range_high + unemployed,
+              data = LC_train1,
+              family = "binomial")
+plot(glm.aic2, which = 4, col = "purple")
+```
+
+```{r}
+p = predict(glm.aic2, LC_test, type="response")
+result = rep(NA, 1000)
+for (i in 1:1000) {
+  if (p[i] < 1/2) {
+    result[i] = 0
+  } else {
+    result[i] = 1
+  }
+}
+accuracy = 0
+for (i in 1:1000) {
+  if (result[i] == LC_test$default[i]) {
+    accuracy = accuracy + 1/1000
+  }
+}
+accuracy
+```
+
+```{r}
+# BIC
+glm.bic = glm(default ~ grade + unemployed,
+              data = LC_train,
+              family = "binomial")
+plot(glm.bic, which = 4, col = "purple")
+```
+```{r}
+p = predict(glm.bic, LC_test, type="response")
+result = rep(NA, 1000)
+for (i in 1:1000) {
+  if (p[i] < 1/2) {
+    result[i] = 0
+  } else {
+    result[i] = 1
+  }
+}
+accuracy = 0
+for (i in 1:1000) {
+  if (result[i] == LC_test$default[i]) {
+    accuracy = accuracy + 1/1000
+  }
+}
+accuracy
+```
+
+
+```{r}
+drop1(glm, test = "LRT")
+```
+
+
+## Odds Ratio
+
+```{r}
+# int rate odd ratio
+x = seq(0,1,0.001)
+plot(x, exp(-6.642*x), pch = 16, col = "purple")
+```
