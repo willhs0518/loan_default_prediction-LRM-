@@ -304,11 +304,46 @@ kable(tibble("Loan Status" = unique(LC$loan_status),
       "Default" = c(0,1,1,1,1,1,1,0,1)))
 ```
 
+# Fitted vs value
 ```{r}
 slices = c(nrow(LC1[LC1$default == 0,]), nrow(LC1[LC1$default == 1,]))
 labels = c("Fully Paid: 33503", "Default: 8863")
 pie(slices, labels = labels, main = "Fully Paid vs Default", col = c("lightblue", "orange"))
 ```
+par(mfrow = c(2,2))
+plot(LC_test$annual_inc, p,
+     col = rgb(0.11,0.11,0.2,alpha = 0.2),
+     xlab = "annual income",
+     ylab = "p")
 
+plot(LC_test$loan_amnt, p,
+     col = rgb(0.11,0.11,0.2,alpha = 0.2),
+     xlab = "loan_amnt",
+     ylab = "p")
+plot(LC_test$open_acc, p,
+     col = rgb(0.11,0.11,0.2,alpha = 0.2),
+     xlab = "open account",
+     ylab = "p")
+plot(LC_test$fico_range_high, p,
+     col = rgb(0.11,0.11,0.2,alpha = 0.2),
+     xlab = "fico_range_high",
+     ylab = "p")
 
-
+```{r}
+par(mfrow = c(2,2))
+plot(LC_test$term, p,
+     xlab = "term",
+     ylab = "p")
+plot(LC_test$verification_status, p,
+     col = rgb(0,0,0,alpha = 0.2),
+     xlab = "verification status",
+     ylab = "p")
+plot(LC_test$unemployed, p,
+     col = rgb(0,0,0,alpha = 0.2),
+     xlab = "unemployed",
+     ylab = "p")
+plot(LC_test$grade, p,
+     col = rgb(0.11,0.11,0.2,alpha = 0.2),
+     xlab = "grade",
+     ylab = "p")
+```
