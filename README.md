@@ -1,7 +1,8 @@
+# Loan defaults prediction
 Loan defaults may cause financial losses financial institutions, it is important to evaluate the customers with their loan history and social characteristics.  Here we proposed a logistic regression model to figure out the influential factors result in risky loan status
 
 
-Abstract: 
+## Abstract: 
 Loan defaults (unsuccessful fully paying the loan in a prescript time) may cause financial losses for financial
 institutions, therefore it is important to evaluate the customers with their loan history and social characteristics
 before lending. In this paper, we proposed a logistic regression method which to predict the loan status and figure
