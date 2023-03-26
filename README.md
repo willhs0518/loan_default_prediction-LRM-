@@ -1,4 +1,4 @@
-# loan_default_prediction-LRM-
+loan default prediction LRM 
 Loan defaults may cause financial losses financial institutions, it is important to evaluate the customers with their loan history and social characteristics.  Here we proposed a logistic regression model to figure out the influential factors result in risky loan status
 
 
